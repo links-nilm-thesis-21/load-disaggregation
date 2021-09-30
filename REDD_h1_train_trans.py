@@ -43,142 +43,189 @@ df_power_trans_mains = pd.DataFrame(data_trans_main)
 df_power_trans_app = pd.DataFrame(data_trans_app)
 
 # %% Run algorithm
+
+
+def run_algorithm(appliance, test_index, window_length, shift_count, power_samples, df_power_trans_mains, df_power_trans_app,
+                  features, rising_features, falling_features, num_last_steady_sts=4, min_samples_steady_state=10,
+                  max_samples_transient_state=3, max_window_size=1350):
+    """
+
+    :param appliance: String with the appliance name that will be processed for training
+    :param test_index: Integer that indicates the start sample of the whole time series
+    :param window_length: Integer that indicates the length of samples of the whole time series
+    :param shift_count: Number of samples that must be shifted the window to start at the first sample of the second steady state
+    :param power_samples: dictionary to store the power samples in the window
+    :param df_power_trans_mains: dataframe with the mains electricity measurements
+    :param df_power_trans_app: dataframe containing the transformed (log transformation) power of each of the appliances
+    :param features: dictionary with the common features for all the events
+    :param rising_features: dictionary with the features of the rising events
+    :param falling_features: dictionary with the features of the falling events
+    :param num_last_steady_sts: Number of steady states to save the euclidean distances mean
+    :param min_samples_steady_state: Integer that indicates the minimum number of data points that should be included in a group to be consider a cluster
+    :param max_samples_transient_state: Integer to indicate the maximum number of transient samples to give less weight in the euclidean distance calculation
+    :param max_window_size: Least number of samples to build up to 2 clusters
+    :return: shift_count, power_samples, features, rising_features, falling_features, appliance
+    """
+
+    events_ts = []  # To record the timestamp of when the events happened
+    ON_OFF_event = []  # To record if was an On or OFF event
+    euc_dist_means = []  # To record the previous euclidean distances from the past 2 consecutive steady states
+    euc_dist_stds = []  # To record the previous euclidean distances' standard deviations from the past 2 consecutive steady states
+    noise_detector = (min_samples_steady_state / 2) - 1  # Value that is linked with the minimum amount of steady state samples (therefore the frequency) to see if non consecutive samples are noise
+    rising_events = []  # To store the rising events unix timestamp
+    falling_events = []  # To store the falling events unix timestamp
+    window_size = (min_samples_steady_state * 2) + 1  # Least number of samples to build up to 2 clusters
+    weights = [0.4, 0.5, 0.6]  # Give less weight to the 3 most separated samples (largest euclidean distances)
+    shift = False  # Flag to shift the power samples to the first sample of the second steady state
+
+    for i in range(len(df_power_trans_app[test_index:test_index + window_length])):
+        if shift:
+            shift_count += min_samples_steady_state  # It must shifted back the min number of samples of the steady state (DBSCAN parameter)
+            shift = False  # Flag back to False to search again for other steady states
+        power_samples['P_t'].append(df_power_trans_app[appliance][test_index:test_index + window_length].iloc[i - shift_count])
+        if len(power_samples['P_t']) >= window_size:
+            df_power_samples = pd.DataFrame(power_samples, index=df_power_trans_app[appliance].iloc[test_index:test_index + window_length].index[(i - shift_count) - window_size + 1:(i - shift_count) + 1])
+            ts = df_power_samples.index
+            ts = ts.astype('int64')
+            # Calculate the euclidean distance between consecutive rows, i.e. 0 and 1, 1 and 2, 2 and 3...
+            euc_dist = np.linalg.norm(df_power_samples.diff(axis=0).dropna(), axis=1)
+            # Weighted euclidean mean to give less weight to the big transition. Doing so we can still detect more samples from the transient state
+            transient_idx = euc_dist.argsort()[-max_samples_transient_state:][::-1]
+            # euc_dist[euc_dist.argmax()] = euc_dist[euc_dist.argmax()] * weight
+            euc_dist[transient_idx] = euc_dist[transient_idx] * weights
+            # Calculating the mean of the euclidean distances to define how apart should be the samples of each cluster (dynamic eps)
+            euc_dist_mean = np.mean(euc_dist)
+            euc_dist_means.append(euc_dist_mean)
+            # Calculating the standard deviation of the euclidean distances to define a margin to add to the dynamic eps
+            euc_dist_std = np.std(euc_dist)
+            euc_dist_stds.append(euc_dist_std)
+            if len(euc_dist_means) > num_last_steady_sts:  # Only consider a certain number of last steady states (This is done to mitigate the noise coming from a long steady state)
+                euc_dist_means.pop(0)  # Discard the last (first in the list) steady state mean
+                euc_dist_stds.pop(0)  # Discard the last (first in the list) steady state standard deviation
+                euc_dists_mean = np.mean(euc_dist_means)  # Mean of the last euclidean distances' means from the last steady states
+                euc_dists_std = np.mean(euc_dist_stds)  # Mean of the last euclidean distances' standard deviations from the last steady states
+            else:
+                euc_dists_mean = np.mean(euc_dist_means)
+                euc_dists_std = np.mean(euc_dist_stds)
+            # Compute the clustering with DBSCAN
+            if euc_dists_mean == 0:  # To avoid having a radio of 0
+                euc_dists_mean = 0.00001
+            clusters = DBSCAN(eps=euc_dists_mean + (euc_dists_std * 2), min_samples=min_samples_steady_state).fit(df_power_samples)
+            values, counts = np.unique(clusters.labels_, return_counts=True)
+            if not {0, 1}.issubset(np.unique(clusters.labels_)):  # To check if there are at least 2 steady states and one transient (-1) (equivalent set([0, 1]).issubset(np.unique(clusters.labels_)))
+                window_size += 1  # If not, increase window size to increase the likelihood of finding two steady states
+                if window_size % max_window_size == 0:  # If the window size increases more than max_window_size samples, start with a new window to avoid the overload for the DBSCAN calculation
+                    print(window_size)
+                    power_samples = {'P_t': []}  # Empty the power samples to detect new transient states
+                    window_size = (min_samples_steady_state * 2) + 1  # Return to the initial window size
+            else:
+                print(window_size)
+                shift = True  # It means that the samples must be shifted back to the first sample of the second steady state
+                power_samples = {'P_t': []}  # Empty the power samples to detect new transient states
+                window_size = (min_samples_steady_state * 2) + 1  # Return to the initial window size
+                first_steady_st_inx = [idx for idx, element in enumerate(clusters.labels_) if element == 0]
+                second_steady_st_inx = [idx for idx, element in enumerate(clusters.labels_) if element == 1]
+                # Check if the second cluster has consecutive indexes, if not it is likely that it is noise or a transient state
+                # The difference between consecutive indexes should always be 1, so unique checks if there is a difference outside 1
+                first_cond = len(np.unique(np.diff(second_steady_st_inx))) > noise_detector
+                # OR if any of the first steady state index is bigger than the first index of the second steady state it can mean that is a long transient between events (the second steady state is in a transient state)
+                second_cond = any(first > second_steady_st_inx[0] for first in first_steady_st_inx)
+                if first_cond or second_cond:
+                    continue
+                print(len(clusters.labels_))
+                events_ts.append(ts[first_steady_st_inx[-1]])  # Save the last sample of the first steady state: that is where the transition to another state occurred
+                # Transition record
+                features['transition'].append(np.abs(df_power_samples.iloc[second_steady_st_inx].P_t.mean() - df_power_samples.iloc[first_steady_st_inx].P_t.mean()))
+                # Timestamp record
+                features['timestamp'].append(ts[first_steady_st_inx[-1]])
+                # Define if it was an ON or OFF event
+                ON_or_OFF = df_power_samples.iloc[second_steady_st_inx[0]].P_t - df_power_samples.iloc[first_steady_st_inx[-1]].P_t
+                if ON_or_OFF > 0:  # Means an ON event because the appliance is consuming more
+                    ON_OFF_event.append(1)  # 1 symbolizes an ON event
+                    rising_events.append(ts[first_steady_st_inx[-1]])  # Store the rising event unix timestamp
+                    features['high_state_max'].append(df_power_samples.iloc[second_steady_st_inx].P_t.max())
+                    features['low_state_max'].append(df_power_samples.iloc[first_steady_st_inx].P_t.max())
+                    features['high_state_min'].append(df_power_samples.iloc[second_steady_st_inx].P_t.min())
+                    features['low_state_min'].append(df_power_samples.iloc[first_steady_st_inx].P_t.min())
+                elif ON_or_OFF < 0:  # Means an OFF event because the appliance is consuming less
+                    ON_OFF_event.append(0)  # 0 symbolizes an OFF event
+                    falling_events.append(ts[first_steady_st_inx[-1]])  # Store the falling event unix timestamp
+                    features['low_state_max'].append(df_power_samples.iloc[second_steady_st_inx].P_t.max())
+                    features['high_state_max'].append(df_power_samples.iloc[first_steady_st_inx].P_t.max())
+                    features['low_state_min'].append(df_power_samples.iloc[second_steady_st_inx].P_t.min())
+                    features['high_state_min'].append(df_power_samples.iloc[first_steady_st_inx].P_t.min())
+
+                # Feature extraction (assuming in the time window there is just one transient state)
+                if {-1}.issubset(values):  # meaning that noise was detected from the transient states in between steady states
+                    trans_idx = [idx for idx, element in enumerate(clusters.labels_) if element == -1]  # Check which are the indexes of the outliers (i.e., -1) (transient samples)
+                    if ON_or_OFF > 0:  # Define if it is a rising or falling spike to determine its dimensions
+                        # Transient duration
+                        trans_duration = pd.Timedelta.total_seconds(df_power_samples.index[second_steady_st_inx[0]] - df_power_samples.index[first_steady_st_inx[-1]])  # Timedelta to total seconds with pandas
+                        rising_features['ris_trans_duration'].append(trans_duration)
+                        # Active and reactive power change of the transient state
+                        trans_active_change = np.exp(df_power_samples.iloc[trans_idx].P_t.max()) - np.exp(df_power_samples.iloc[first_steady_st_inx].P_t.mean())
+                        rising_features['ris_trans_power_change_P'].append(trans_active_change)
+                        # Transient spike for reactive and active powers
+                        max_P = np.exp(df_power_samples.iloc[trans_idx].P_t.max())
+                        min_P = np.exp(df_power_samples.iloc[second_steady_st_inx].P_t.mean())
+                        rising_features['ris_trans_spike_P'].append(max_P - min_P)
+                    else:
+                        # Transient duration
+                        trans_duration = pd.Timedelta.total_seconds(df_power_samples.index[second_steady_st_inx[0]] - df_power_samples.index[first_steady_st_inx[-1]])  # Timedelta to total seconds with pandas
+                        falling_features['fall_trans_duration'].append(trans_duration)
+                        # Active and reactive power change of the transient state
+                        trans_active_change = np.exp(df_power_samples.iloc[first_steady_st_inx].P_t.mean()) - np.exp(df_power_samples.iloc[trans_idx].P_t.min())
+                        # Transient spike for reactive and active powers
+                        max_P = np.exp(df_power_samples.iloc[second_steady_st_inx].P_t.mean())
+                        min_P = np.exp(df_power_samples.iloc[trans_idx].P_t.min())
+                        # Active and reactive power change of the transient state
+                        falling_features['fall_trans_power_change_P'].append(trans_active_change)
+                        # Transient spike for reactive and active powers
+                        falling_features['fall_trans_spike_P'].append(max_P - min_P)
+    return shift_count, power_samples, features, rising_features, falling_features, appliance
+
+
 power_samples = {'P_t': []}
+min_samples_steady_state = 10
+test_index = 0
+window_length = len(df_power_trans_app)
+shift_count = min_samples_steady_state + 1  # Number of samples that must be shifted the window to start at the first sample of the second steady state
+df_app_transitions = pd.DataFrame()
+df_rising_features = pd.DataFrame()
+df_falling_features = pd.DataFrame()
 features = {'timestamp': [], 'transition': [], 'low_state_max': [],
             'high_state_max': [], 'low_state_min': [],
             'high_state_min': []}
 rising_features = {'ris_trans_power_change_P': [], 'ris_trans_spike_P': [], 'ris_trans_duration': []}
 falling_features = {'fall_trans_power_change_P': [], 'fall_trans_spike_P': [], 'fall_trans_duration': []}
-events_ts = []  # To record the timestamp of when the events happened
-ON_OFF_event = []  # To record if was an On or OFF event
-euc_dist_means = []  # To record the previous euclidean distances from the past 2 consecutive steady states
-euc_dist_stds = []  # To record the previous euclidean distances' standard deviations from the past 2 consecutive steady states
-num_last_steady_sts = 4  # Number of steady states to save the euclidean distances mean
-min_samples_steady_state = 10
-noise_detector = (min_samples_steady_state / 2) - 1  # Value that is linked with the minimum amount of steady state samples (therefore the frequency) to see if non consecutive samples are noise
-GND_ST = False  # Flag that symbolizes if the ground state was defined or not
-END_ACTIVE_CYCLE = False  # Flag to determine when is the end of an active cycle
-rising_events = []  # To store the rising events unix timestamp
-falling_events = []  # To store the falling events unix timestamp
-max_samples_transient_state = 3
-fs = 1 / 3  # Sampling frequency
-window_size = (min_samples_steady_state * 2) + 1  # Least number of samples to build up to 2 clusters
-# weight = 0.5  # Give less weight to the largest number
-weights = [0.4, 0.5, 0.6]  # Give less weight to the 3 most separated samples (largest euclidean distances)
-test_index = 0
-window_length = len(df_power_trans_app)
-appliance = 'bathroom gfi'
-for i in range(len(df_power_trans_app[test_index:test_index + window_length])):
-    power_samples['P_t'].append(df_power_trans_app[appliance][test_index:test_index + window_length].iloc[i])
-    if len(power_samples['P_t']) >= window_size:
-        df_power_samples = pd.DataFrame(power_samples, index=df_power_trans_app[appliance].iloc[test_index:test_index + window_length].index[i - window_size + 1:i + 1])
-        ts = df_power_samples.index
-        ts = ts.astype('int64')
-        # Calculate the euclidean distance between consecutive rows, i.e. 0 and 1, 1 and 2, 2 and 3...
-        euc_dist = np.linalg.norm(df_power_samples.diff(axis=0).dropna(), axis=1)
-        # Weighted euclidean mean to give less weight to the big transition. Doing so we can still detect more samples from the transient state
-        transient_idx = euc_dist.argsort()[-max_samples_transient_state:][::-1]
-        # euc_dist[euc_dist.argmax()] = euc_dist[euc_dist.argmax()] * weight
-        euc_dist[transient_idx] = euc_dist[transient_idx] * weights
-        # Calculating the mean of the euclidean distances to define how apart should be the samples of each cluster (dynamic eps)
-        euc_dist_mean = np.mean(euc_dist)
-        euc_dist_means.append(euc_dist_mean)
-        # Calculating the standard deviation of the euclidean distances to define a margin to add to the dynamic eps
-        euc_dist_std = np.std(euc_dist)
-        euc_dist_stds.append(euc_dist_std)
-        if len(euc_dist_means) > num_last_steady_sts:  # Only consider a certain number of last steady states (This is done to mitigate the noise coming from a long steady state)
-            euc_dist_means.pop(0)  # Discard the last (first in the list) steady state mean
-            euc_dist_stds.pop(0)  # Discard the last (first in the list) steady state standard deviation
-            euc_dists_mean = np.mean(euc_dist_means)  # Mean of the last euclidean distances' means from the last steady states
-            euc_dists_std = np.mean(euc_dist_stds)  # Mean of the last euclidean distances' standard deviations from the last steady states
-        else:
-            euc_dists_mean = np.mean(euc_dist_means)
-            euc_dists_std = np.mean(euc_dist_stds)
-        # Compute the clustering with DBSCAN
-        if euc_dists_mean == 0:  # To avoid having a radio of 0
-            euc_dists_mean = 0.00001
-        clusters = DBSCAN(eps=euc_dists_mean + (euc_dists_std * 2), min_samples=min_samples_steady_state).fit(df_power_samples)
-        values, counts = np.unique(clusters.labels_, return_counts=True)
-        if not {0, 1}.issubset(np.unique(clusters.labels_)):  # To check if there are at least 2 steady states and one transient (-1) (equivalent set([0, 1]).issubset(np.unique(clusters.labels_)))
-            window_size += 1  # If not, increase window size to increase the likelihood of finding two steady states
-            if window_size % 2000 == 0:  # If the window size increases more than 2000 samples, start with a new window to avoid the overload for the DBSCAN calculation
-                print(window_size)
-                power_samples = {'P_t': []}  # Empty the power samples to detect new transient states
-                window_size = (min_samples_steady_state * 2) + 1  # Return to the initial window size
-        else:
-            print(window_size)
-            power_samples = {'P_t': []}  # Empty the power samples to detect new transient states
-            window_size = (min_samples_steady_state * 2) + 1  # Return to the initial window size
-            first_steady_st_inx = [idx for idx, element in enumerate(clusters.labels_) if element == 0]
-            second_steady_st_inx = [idx for idx, element in enumerate(clusters.labels_) if element == 1]
-            # Check if the second cluster has consecutive indexes, if not it is likely that it is noise or a transient state
-            # The difference between consecutive indexes should always be 1, so unique checks if there is a difference outside 1
-            first_cond = len(np.unique(np.diff(second_steady_st_inx))) > noise_detector
-            # OR if any of the first steady state index is bigger than the first index of the second steady state it can mean that is a long transient between events (the second steady state is in a transient state)
-            second_cond = any(first > second_steady_st_inx[0] for first in first_steady_st_inx)
-            if first_cond or second_cond:
-                continue
-            print(len(clusters.labels_))
-            events_ts.append(ts[first_steady_st_inx[-1]])  # Save the last sample of the first steady state: that is where the transition to another state occurred
-            # Transition record
-            features['transition'].append(np.abs(df_power_samples.iloc[second_steady_st_inx].P_t.mean() - df_power_samples.iloc[first_steady_st_inx].P_t.mean()))
-            # Timestamp record
-            features['timestamp'].append(ts[first_steady_st_inx[-1]])
-            # Define if it was an ON or OFF event
-            ON_or_OFF = df_power_samples.iloc[second_steady_st_inx[0]].P_t - df_power_samples.iloc[first_steady_st_inx[-1]].P_t
-            if ON_or_OFF > 0:  # Means an ON event because the appliance is consuming more
-                ON_OFF_event.append(1)  # 1 symbolizes an ON event
-                rising_events.append(ts[first_steady_st_inx[-1]])  # Store the rising event unix timestamp
-                features['high_state_max'].append(df_power_samples.iloc[second_steady_st_inx].P_t.max())
-                features['low_state_max'].append(df_power_samples.iloc[first_steady_st_inx].P_t.max())
-                features['high_state_min'].append(df_power_samples.iloc[second_steady_st_inx].P_t.min())
-                features['low_state_min'].append(df_power_samples.iloc[first_steady_st_inx].P_t.min())
-            elif ON_or_OFF < 0:  # Means an OFF event because the appliance is consuming less
-                ON_OFF_event.append(0)  # 0 symbolizes an OFF event
-                falling_events.append(ts[first_steady_st_inx[-1]])  # Store the falling event unix timestamp
-                features['low_state_max'].append(df_power_samples.iloc[second_steady_st_inx].P_t.max())
-                features['high_state_max'].append(df_power_samples.iloc[first_steady_st_inx].P_t.max())
-                features['low_state_min'].append(df_power_samples.iloc[second_steady_st_inx].P_t.min())
-                features['high_state_min'].append(df_power_samples.iloc[first_steady_st_inx].P_t.min())
 
-            # TODO define a strategy to detect simultaneous events not belonging to the same appliance and detect appliances with multi-state two or more consecutive ON events
-            # Feature extraction (assuming in the time window there is just one transient state)
-            if {-1}.issubset(values):  # meaning that noise was detected from the transient states in between steady states
-                trans_idx = [idx for idx, element in enumerate(clusters.labels_) if element == -1]  # Check which are the indexes of the outliers (i.e., -1) (transient samples)
-                if ON_or_OFF > 0:  # Define if it is a rising or falling spike to determine its dimensions
-                    # Transient duration
-                    trans_duration = pd.Timedelta.total_seconds(df_power_samples.index[second_steady_st_inx[0]] - df_power_samples.index[first_steady_st_inx[-1]])  # Timedelta to total seconds with pandas
-                    rising_features['ris_trans_duration'].append(trans_duration)
-                    # Active and reactive power change of the transient state
-                    trans_active_change = np.exp(df_power_samples.iloc[trans_idx].P_t.max()) - np.exp(df_power_samples.iloc[first_steady_st_inx].P_t.mean())
-                    rising_features['ris_trans_power_change_P'].append(trans_active_change)
-                    # Transient spike for reactive and active powers
-                    max_P = np.exp(df_power_samples.iloc[trans_idx].P_t.max())
-                    min_P = np.exp(df_power_samples.iloc[second_steady_st_inx].P_t.mean())
-                    rising_features['ris_trans_spike_P'].append(max_P - min_P)
-                else:
-                    # Transient duration
-                    trans_duration = pd.Timedelta.total_seconds(df_power_samples.index[second_steady_st_inx[0]] - df_power_samples.index[first_steady_st_inx[-1]])  # Timedelta to total seconds with pandas
-                    falling_features['fall_trans_duration'].append(trans_duration)
-                    # Active and reactive power change of the transient state
-                    trans_active_change = np.exp(df_power_samples.iloc[first_steady_st_inx].P_t.mean()) - np.exp(df_power_samples.iloc[trans_idx].P_t.min())
-                    # Transient spike for reactive and active powers
-                    max_P = np.exp(df_power_samples.iloc[second_steady_st_inx].P_t.mean())
-                    min_P = np.exp(df_power_samples.iloc[trans_idx].P_t.min())
-                    # Active and reactive power change of the transient state
-                    falling_features['fall_trans_power_change_P'].append(trans_active_change)
-                    # Transient spike for reactive and active powers
-                    falling_features['fall_trans_spike_P'].append(max_P - min_P)
+while shift_count > min_samples_steady_state:
+    shift_count = 0
+    shift_count, power_samples, features, rising_features, falling_features, appliance = run_algorithm('oven2', test_index, window_length, shift_count, power_samples, df_power_trans_mains, df_power_trans_app, features, rising_features, falling_features, min_samples_steady_state=min_samples_steady_state)
+    print('shift count:', shift_count)
+    test_index = test_index + window_length - (shift_count + len(power_samples['P_t'])) - 1
+    window_length = shift_count + len(power_samples['P_t'])
+    power_samples = {'P_t': []}
+    features_df = pd.DataFrame(features)
+    rising_features_df = pd.DataFrame(rising_features)
+    falling_features_df = pd.DataFrame(falling_features)
+    df_app_transitions = pd.concat([df_app_transitions, features_df])
+    df_rising_features = pd.concat([df_rising_features, rising_features_df])
+    df_falling_features = pd.concat([df_falling_features, falling_features_df])
+    features = {'timestamp': [], 'transition': [], 'low_state_max': [],
+                'high_state_max': [], 'low_state_min': [],
+                'high_state_min': []}
+    rising_features = {'ris_trans_power_change_P': [], 'ris_trans_spike_P': [], 'ris_trans_duration': []}
+    falling_features = {'fall_trans_power_change_P': [], 'fall_trans_spike_P': [], 'fall_trans_duration': []}
 
-df_app_transitions = pd.DataFrame(features)
-df_rising_features = pd.DataFrame(rising_features)
-df_falling_features = pd.DataFrame(falling_features)
-df_app_transitions.to_csv(f'transitions first try/{appliance}.csv')
-df_rising_features.to_csv(f'transitions first try/{appliance}_rising.csv')
-df_falling_features.to_csv(f'transitions first try/{appliance}_falling.csv')
+df_app_transitions.to_csv(f'transitions/{appliance}.csv')
+df_rising_features.to_csv(f'transitions/{appliance}_rising.csv')
+df_falling_features.to_csv(f'transitions/{appliance}_falling.csv')
+
+
 # %% Centroids separation
 # Load the appliance power transitions
-appliance = 'washer dryer2'
+appliance = 'oven2'
 app_transitions = pd.read_csv(f'transitions first try/{appliance}.csv', index_col=0)
 app_transitions['watt_transition_low'] = np.abs(np.exp(app_transitions['high_state_min'])-np.exp(app_transitions['low_state_max']))
 app_transitions['watt_transition_high'] = np.abs(np.exp(app_transitions['high_state_max'])-np.exp(app_transitions['low_state_min']))
@@ -231,5 +278,5 @@ transition_intervals = [(transition[0], transition[1]) for transition in transit
 # Delete the transitions with a single point (it is noise)
 transition_intervals = [(transition[0], transition[1]) for transition in transition_intervals if not transition[0] == transition[1]]
 df_transition_intervals = pd.DataFrame(transition_intervals)
-df_transition_intervals.to_csv(f'transitions first try/intervals_{appliance}.csv')
+df_transition_intervals.to_csv(f'transitions/intervals_{appliance}.csv')
 
