@@ -201,7 +201,10 @@ falling_features = {'fall_trans_power_change_P': [], 'fall_trans_spike_P': [], '
 
 while shift_count > min_samples_steady_state:
     shift_count = 0
-    shift_count, power_samples, features, rising_features, falling_features, appliance = run_algorithm('oven2', test_index, window_length, shift_count, power_samples, df_power_trans_mains, df_power_trans_app, features, rising_features, falling_features, min_samples_steady_state=min_samples_steady_state)
+    shift_count, power_samples, features, rising_features, falling_features, appliance = run_algorithm('dish washer', test_index, window_length, shift_count,
+                                                                                                       power_samples, df_power_trans_mains, df_power_trans_app,
+                                                                                                       features, rising_features, falling_features,
+                                                                                                       min_samples_steady_state=min_samples_steady_state)
     print('shift count:', shift_count)
     test_index = test_index + window_length - (shift_count + len(power_samples['P_t'])) - 1
     window_length = shift_count + len(power_samples['P_t'])
@@ -225,8 +228,8 @@ df_falling_features.to_csv(f'transitions/{appliance}_falling.csv')
 
 # %% Centroids separation
 # Load the appliance power transitions
-appliance = 'oven2'
-app_transitions = pd.read_csv(f'transitions first try/{appliance}.csv', index_col=0)
+appliance = 'dish washer'
+app_transitions = pd.read_csv(f'transitions/{appliance}.csv', index_col=0)
 app_transitions['watt_transition_low'] = np.abs(np.exp(app_transitions['high_state_min'])-np.exp(app_transitions['low_state_max']))
 app_transitions['watt_transition_high'] = np.abs(np.exp(app_transitions['high_state_max'])-np.exp(app_transitions['low_state_min']))
 transitions = pd.concat([app_transitions['watt_transition_low'], app_transitions['watt_transition_high']], axis=0)
