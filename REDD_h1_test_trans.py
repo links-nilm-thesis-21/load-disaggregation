@@ -99,7 +99,7 @@ appliances = ['oven1', 'oven2', 'microwave', 'kitchen outlets1', 'kitchen outlet
 df_power_intervals = pd.DataFrame()
 app_corr = []  # To store the appliance power interval correspondence
 for appliance in appliances:
-    power_intervals = pd.read_csv(f'transitions first try/intervals_{appliance}.csv', index_col=0)
+    power_intervals = pd.read_csv(f'transitions/intervals_{appliance}.csv', index_col=0)
     df_power_intervals = pd.concat([df_power_intervals, power_intervals])
     # To store the appliance power interval correspondence
     app_corr_aux = [appliance for i in range(len(power_intervals))]
@@ -114,7 +114,10 @@ event_match = pd.DataFrame(index=index)  # event correspondences
 prob_tie_break_ris = pd.DataFrame(index=index)  # probability tie break matrix
 rising_or_falling = pd.DataFrame(index=index)  # Record in the event correspondences if it was a rising (+1) or falling event (-1)
 event_powers = pd.DataFrame(index=index)  # event power values
+event_timestamps = pd.DataFrame(index=index)  # Event timestamps to calculate the power consumption
 prediction_dict = {'timestamp': [], 'appliance': [], 'On_Off': []}  # Creating the dictionary for the predictions
+# Creating dictionary for the total consumption of each appliance
+total_consumption = {elec_device: 0 for elec_device in appliances}  # In Wh
 # %% Load dataset
 
 redd = DataSet('./REDD/redd.h5')
@@ -158,12 +161,14 @@ data_trans_app = {'oven1': np.log(df_oven_1_bui_1['power']['active'].mask(df_ove
 
 df_power_trans_mains = pd.DataFrame(data_trans_main)
 df_power_trans_app = pd.DataFrame(data_trans_app)
+
+
 # %% Run algorithm with detection of active cycle
 
 
 def run_algorithm(test_index, window_length, shift_count, power_samples, df_power_trans_mains, df_power_trans_app, event_match_aux, event_match,
-                  prob_tie_break_ris, rising_or_falling, event_powers, prediction_dict, num_last_steady_sts=4, min_samples_steady_state=10,
-                  max_samples_transient_state=3, max_window_size=1350, main=True):
+                  prob_tie_break_ris, rising_or_falling, event_powers, event_timestamps, prediction_dict, power_inter_look_up, power_ranges,
+                  total_consumption, num_last_steady_sts=4, min_samples_steady_state=10, max_samples_transient_state=3, max_window_size=1350, main=True):
     """
 
     :param test_index: Integer that indicates the start sample of the whole time series
@@ -177,7 +182,11 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
     :param prob_tie_break_ris: dataframe probability tie break matrix
     :param rising_or_falling: dataframe to record in the event correspondences matrix if it was a rising (+1) or falling event (-1)
     :param event_powers: dataframe matrix of event power values
+    :param event_timestamps: dataframe matrix of event timestamps
     :param prediction_dict: predictions dictionary
+    :param power_inter_look_up: dictionary with Lookup list to know for which power interval corresponds to the appliance
+    :param power_ranges: list with tuples of the upper and lower power consumption intervals of each appliance
+    :param total_consumption: dictionary containing the total consumption of each of the appliances
     :param num_last_steady_sts: Number of steady states to save the euclidean distances mean
     :param min_samples_steady_state: Integer that indicates the minimum number of data points that should be included in a group to be consider a cluster
     :param max_samples_transient_state: Integer to indicate the maximum number of transient samples to give less weight in the euclidean distance calculation
@@ -404,9 +413,9 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                             # Empty list to save the probabilities of each appliance
                             app_prob = []
                             for app in apps:
-                                df_features = pd.read_csv(f'transitions first try/{app[0]}.csv', index_col=0)
+                                df_features = pd.read_csv(f'transitions/{app[0]}.csv', index_col=0)
                                 if features['transition'][event] > 0:  # Rising event
-                                    df_rising_features = pd.read_csv(f'transitions first try/{app[0]}_rising.csv', index_col=0)
+                                    df_rising_features = pd.read_csv(f'transitions/{app[0]}_rising.csv', index_col=0)
                                     # Build for active power in watts
                                     df_features['watt_transition_low'] = np.abs(np.exp(df_features['high_state_min']) - np.exp(df_features['low_state_max']))
                                     df_features['watt_transition_high'] = np.abs(np.exp(df_features['high_state_max']) - np.exp(df_features['low_state_min']))
@@ -467,6 +476,8 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                             # Constructing the correspondence matrix
                             event_match.loc[high_prob_idx, ris_event_idx] = 1
                             event_match.loc[fall_appliance_idx, fall_event_idx] = 1
+                            event_timestamps.loc[high_prob_idx, ris_event_idx] = rising_events[0] // 1000000000
+                            event_timestamps.loc[fall_appliance_idx, fall_event_idx] = falling_events[len(falling_events) - 1] // 1000000000
                             # Assigning the correspondent prediction to the dictionary
                             # For the rising event (index 0)
                             prediction_dict['timestamp'].append(rising_events[0])
@@ -529,6 +540,8 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                                 # Constructing the correspondence matrix
                                 event_match.loc[high_prob_idx, ris_event_idx] = 1
                                 event_match.loc[fall_appliance_idx, fall_event_idx] = 1
+                                event_timestamps.loc[high_prob_idx, ris_event_idx] = rising_events[ris_compatibility_idx] // 1000000000
+                                event_timestamps.loc[fall_appliance_idx, fall_event_idx] = falling_events[fall_compatibility_idx] // 1000000000
                                 # Assigning the correspondent prediction to the dictionary
                                 # For the rising event (index ris_compatibility_idx)
                                 prediction_dict['timestamp'].append(rising_events[ris_compatibility_idx])
@@ -559,6 +572,8 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                                         # Constructing the correspondence matrix
                                         event_match.loc[high_prob_idx, ris_event_idx] = 1
                                         event_match.loc[fall_appliance_idx, fall_event_idx] = 1
+                                        event_timestamps.loc[high_prob_idx, ris_event_idx] = rising_events[ris_compatibility_idx] // 1000000000
+                                        event_timestamps.loc[fall_appliance_idx, fall_event_idx] = falling_events[fall_index] // 1000000000
                                         # Assigning the correspondent prediction to the dictionary
                                         # For the rising event (index ris_compatibility_idx)
                                         prediction_dict['timestamp'].append(rising_events[ris_compatibility_idx])
@@ -596,6 +611,7 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                             matched_apps = [app for app in match_apps if np.array(matched_events[app[0]]).min() < app[1] < np.array(matched_events[app[0]]).max()]
                             for app in matched_apps:
                                 event_match.loc[app[2], app[1]] = 1
+                                event_timestamps.loc[app[2], app[1]] = app[3] // 1000000000
                                 # Assigning the correspondent prediction to the dictionary
                                 # For the rising event (index ris_compatibility_idx)
                                 prediction_dict['timestamp'].append(app[3])
@@ -604,6 +620,30 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                                     prediction_dict['On_Off'].append(1)
                                 else:  # Falling event
                                     prediction_dict['On_Off'].append(0)
+                        ####----Energy consumption calculation----####
+                        # The matched pair events with the corresponding appliance:
+                        matched_ts = [(power_inter_look_up[app_idx], event_timestamps.loc[app_idx, event_match.columns[event_idx]]) for app_idx, event_idx in zip(np.where(event_match == 1)[0], np.where(event_match == 1)[1])]
+                        matched_event_ts = {}
+                        for key, value in matched_ts:
+                            matched_event_ts.setdefault(key, []).append(value)
+                        matched_power = [(power_inter_look_up[app_idx], event_powers.loc[app_idx, event_match.columns[event_idx]]) for app_idx, event_idx in zip(np.where(event_match == 1)[0], np.where(event_match == 1)[1])]
+                        matched_event_power = {}
+                        for key, value in matched_power:
+                            matched_event_power.setdefault(key, []).append(value)
+                        # Creating the dataframes with the power and timestamps of each of the appliances
+                        disaggregation_dfs = {}
+                        for key in matched_event_ts.keys():
+                            disaggregation_dfs[key] = pd.DataFrame(np.array([matched_event_ts[key], matched_event_power[key]]).T, columns=["ts", "power"])
+                        for device in matched_event_ts.keys():
+                            # Sort the dataframes in descending order according to the timestamp
+                            disaggregation_dfs[device] = disaggregation_dfs[device].sort_values(by=['ts'])
+                            # Calculation of the mode duration
+                            disaggregation_dfs[device]['mode duration [h]'] = disaggregation_dfs[device]['ts'].diff().dropna() / 3600
+                            # Computing the aggregate consumption in the active cycle
+                            disaggregation_dfs[device]['agg consumption [W]'] = disaggregation_dfs[device]['power'].cumsum()
+                            # Energy consumed in the time interval of the operation mode
+                            disaggregation_dfs[device]['energy consumed [Wh]'] = disaggregation_dfs[device]['mode duration [h]'].shift(-1) * disaggregation_dfs[device]['agg consumption [W]']
+                            total_consumption[device] += disaggregation_dfs[device]['energy consumed [Wh]'].sum()
                         # Empty the unmatched events list
                         in_between_unmatched = []
                         # Empty the useful dataframes
@@ -611,7 +651,8 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                         event_match_aux = pd.DataFrame(index=index)
                         prob_tie_break_ris = pd.DataFrame(index=index)
                         event_powers = pd.DataFrame(index=index)
-    return shift_count, power_samples, prediction_dict
+                        event_timestamps = pd.DataFrame(index=index)
+    return shift_count, power_samples, prediction_dict, total_consumption
 
 
 power_samples = {'P_t': []}
@@ -623,7 +664,11 @@ prediction_df = pd.DataFrame()
 
 while shift_count > min_samples_steady_state:
     shift_count = 0
-    shift_count, power_samples, prediction_dict = run_algorithm(test_index, window_length, shift_count, power_samples, df_power_trans_mains, df_power_trans_app, event_match_aux, event_match, prob_tie_break_ris, rising_or_falling, event_powers, prediction_dict, min_samples_steady_state=min_samples_steady_state)
+    shift_count, power_samples, prediction_dict, total_consumption = run_algorithm(test_index, window_length, shift_count, power_samples,
+                                                                                   df_power_trans_mains, df_power_trans_app, event_match_aux,
+                                                                                   event_match, prob_tie_break_ris, rising_or_falling, event_powers,
+                                                                                   event_timestamps, prediction_dict, power_inter_look_up, power_ranges,
+                                                                                   total_consumption, min_samples_steady_state=min_samples_steady_state)
     print('shift count:', shift_count)
     test_index = test_index + window_length - (shift_count + len(power_samples['P_t'])) - 1
     window_length = shift_count + len(power_samples['P_t'])
