@@ -26,7 +26,7 @@ def pdf(dataframe, data_point):
     return probability  # Return the log probability
 
 
-def append_features(rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux, ris_compatibility_idx, fall_compatibility_idx):
+def append_features(dataset, rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux, ris_compatibility_idx, fall_compatibility_idx):
     # Rising features
     rising_features['ris_transition_P'].append(rising_features_aux['ris_transition_P'].pop(ris_compatibility_idx))
     rising_features['ris_trans_duration'].append(rising_features_aux['ris_trans_duration'].pop(ris_compatibility_idx))
@@ -54,11 +54,20 @@ def append_features(rising_events, falling_events, rising_features, falling_feat
     falling_events.pop(fall_compatibility_idx)  # Extract the falling event that was compatible to delete it
     rising_features_aux['ts'].pop(ris_compatibility_idx)
     falling_features_aux['ts'].pop(fall_compatibility_idx)
+    if dataset == 'IMDELD':
+        # Rising features
+        rising_features['ris_transition_Q'].append(rising_features_aux['ris_transition_Q'].pop(ris_compatibility_idx))
+        rising_features['ris_trans_power_change_Q'].append(rising_features_aux['ris_trans_power_change_Q'].pop(ris_compatibility_idx))
+        rising_features['ris_trans_spike_Q'].append(rising_features_aux['ris_trans_spike_Q'].pop(ris_compatibility_idx))
+        # Falling features
+        falling_features['fall_transition_Q'].append(falling_features_aux['fall_transition_Q'].pop(fall_compatibility_idx))
+        falling_features['fall_trans_power_change_Q'].append(falling_features_aux['fall_trans_power_change_Q'].pop(fall_compatibility_idx))
+        falling_features['fall_trans_spike_Q'].append(falling_features_aux['fall_trans_spike_Q'].pop(fall_compatibility_idx))
 
     return rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux
 
 
-def append_rising_unmatched(rising_events, unmatched_rising_features, rising_features_aux, ris_compatibility_idx):
+def append_rising_unmatched(dataset, rising_events, unmatched_rising_features, rising_features_aux, ris_compatibility_idx):
     print(f'For the rising event {rising_events[ris_compatibility_idx]}, a match was not found')
     unmatched_rising_features['ris_transition_P'].append(rising_features_aux['ris_transition_P'].pop(ris_compatibility_idx))
     unmatched_rising_features['ris_trans_duration'].append(rising_features_aux['ris_trans_duration'].pop(ris_compatibility_idx))
@@ -74,10 +83,15 @@ def append_rising_unmatched(rising_events, unmatched_rising_features, rising_fea
     unmatched_rising_features['timestamp'].append(rising_events.pop(ris_compatibility_idx))  # The last element of the rising events is deleted
     # Third condition
     rising_features_aux['feature_idx'].pop(ris_compatibility_idx)
+    if dataset == 'IMDELD':
+        unmatched_rising_features['ris_transition_Q'].append(rising_features_aux['ris_transition_Q'].pop(ris_compatibility_idx))
+        unmatched_rising_features['ris_trans_power_change_Q'].append(rising_features_aux['ris_trans_power_change_Q'].pop(ris_compatibility_idx))
+        unmatched_rising_features['ris_trans_spike_Q'].append(rising_features_aux['ris_trans_spike_Q'].pop(ris_compatibility_idx))
+
     return rising_events, unmatched_rising_features, rising_features_aux
 
 
-def append_falling_unmatched(falling_events, unmatched_falling_features, falling_features_aux, fall_compatibility_idx):
+def append_falling_unmatched(dataset, falling_events, unmatched_falling_features, falling_features_aux, fall_compatibility_idx):
     print(f'For the falling event {falling_events[fall_compatibility_idx]}, a match was not found')
     unmatched_falling_features['fall_transition_P'].append(falling_features_aux['fall_transition_P'].pop(fall_compatibility_idx))
     unmatched_falling_features['fall_trans_duration'].append(falling_features_aux['fall_trans_duration'].pop(fall_compatibility_idx))
@@ -91,15 +105,35 @@ def append_falling_unmatched(falling_events, unmatched_falling_features, falling
     unmatched_falling_features['timestamp'].append(falling_events.pop(fall_compatibility_idx))  # The falling event is deleted
     # Third condition:
     falling_features_aux['feature_idx'].pop(fall_compatibility_idx)
+    if dataset == 'IMDELD':
+        unmatched_falling_features['fall_transition_Q'].append(falling_features_aux['fall_transition_Q'].pop(fall_compatibility_idx))
+        unmatched_falling_features['fall_trans_power_change_Q'].append(falling_features_aux['fall_trans_power_change_Q'].pop(fall_compatibility_idx))
+        unmatched_falling_features['fall_trans_spike_Q'].append(falling_features_aux['fall_trans_spike_Q'].pop(fall_compatibility_idx))
+
     return falling_events, unmatched_falling_features, falling_features_aux
 
 
+# Power transformations
+def find_log(x):
+    if x > 0:
+        log = np.log(x)
+    elif x < 0:
+        log = np.log(x * -1) * -1
+    elif x == 0:
+        log = 0
+    return log
+
+
 # %% Grouping all power intervals
-appliances = ['oven1', 'oven2', 'microwave', 'kitchen outlets1', 'kitchen outlets2', 'bathroom gfi', 'washer dryer1', 'washer dryer2', 'fridge', 'dish washer']
+DATASET = 'IMDELD'
+if DATASET == 'REDD':
+    appliances = ['oven1', 'oven2', 'microwave', 'kitchen outlets1', 'kitchen outlets2', 'bathroom gfi', 'washer dryer1', 'washer dryer2', 'fridge', 'dish washer']
+elif DATASET == 'IMDELD':
+    appliances = ['milling_I', 'milling_II', 'pelletizer_I', 'pelletizer_II', 'exhaust_fan_I', 'exhaust_fan_II', 'double_pole_I', 'double_pole_II']
 df_power_intervals = pd.DataFrame()
 app_corr = []  # To store the appliance power interval correspondence
 for appliance in appliances:
-    power_intervals = pd.read_csv(f'transitions/intervals_{appliance}.csv', index_col=0)
+    power_intervals = pd.read_csv(f'transitions/{DATASET}/intervals_{appliance}.csv', index_col=0)
     df_power_intervals = pd.concat([df_power_intervals, power_intervals])
     # To store the appliance power interval correspondence
     app_corr_aux = [appliance for i in range(len(power_intervals))]
@@ -119,58 +153,68 @@ prediction_dict = {'timestamp': [], 'appliance': [], 'On_Off': []}  # Creating t
 # Creating dictionary for the total consumption of each appliance
 total_consumption = {elec_device: 0 for elec_device in appliances}  # In Wh
 # %% Load dataset
+if DATASET == 'REDD':
+    redd = DataSet('./REDD/redd.h5')
+    machine = 'fridge'
+    building_1_elec = redd.buildings[1].elec
+    machines_dict = {'main1': 1,
+                     'main2': 2,
+                     'oven1': 3,
+                     'oven2': 4,
+                     'microwave': 11,
+                     'kitchen outlets1': 15,
+                     'kitchen outlets2': 16,
+                     'bathroom gfi': 12,
+                     'washer dryer1': 10,
+                     'washer dryer2': 20,
+                     'fridge': 5,
+                     'dish washer': 6}
+    df_machine = next(building_1_elec[machines_dict[machine]].load())
+    df_main_1_bui_1 = next(building_1_elec[machines_dict['main1']].load())
+    df_main_2_bui_1 = next(building_1_elec[machines_dict['main2']].load())
 
-redd = DataSet('./REDD/redd.h5')
-building_1_elec = redd.buildings[1].elec
-df_main_1_bui_1 = next(building_1_elec[1].load())
-df_main_2_bui_1 = next(building_1_elec[2].load())
-df_oven_1_bui_1 = next(building_1_elec[3].load())
-df_oven_2_bui_1 = next(building_1_elec[4].load())
-df_microwave_bui_1 = next(building_1_elec[11].load())
-df_kitchen_outlets_1_bui_1 = next(building_1_elec[15].load())
-df_kitchen_outlets_2_bui_1 = next(building_1_elec[16].load())
-df_bathroom_gfi_bui_1 = next(building_1_elec[12].load())
-df_washer_dryer_1_bui_1 = next(building_1_elec[10].load())
-df_washer_dryer_2_bui_1 = next(building_1_elec[20].load())
-df_fridge_bui_1 = next(building_1_elec[5].load())
-df_dish_washer_bui_1 = next(building_1_elec[6].load())
-# Merging main1 and main2 (to include the dishwasher in the aggregate measurements)
-df_mains_merged = df_main_1_bui_1['power']['apparent'] + df_main_2_bui_1['power']['apparent']
-df_mains_merged = pd.DataFrame(df_mains_merged)
-# Clean merged power signals just sum the appliances that will be considered for disaggregation
-df_clean_merge = df_oven_1_bui_1['power']['active'] + df_oven_2_bui_1['power']['active'] + df_microwave_bui_1['power']['active'] \
-                 + df_kitchen_outlets_1_bui_1['power']['active'] + df_kitchen_outlets_2_bui_1['power']['active'] + df_bathroom_gfi_bui_1['power']['active'] \
-                 + df_washer_dryer_1_bui_1['power']['active'] + df_washer_dryer_2_bui_1['power']['active'] + df_fridge_bui_1['power']['active']
-df_clean_merge = pd.DataFrame(df_clean_merge)
+    # Merging main1 and main2 (to include the dishwasher in the aggregate measurements)
+    df_mains_merged = df_main_1_bui_1['power']['apparent'] + df_main_2_bui_1['power']['apparent']
+    df_mains_merged = pd.DataFrame(df_mains_merged)
+    data_trans_main = {'main1': np.log(df_main_1_bui_1['power']['apparent'].mask(df_main_1_bui_1['power']['apparent'] <= 0)).fillna(0),
+                       'main2': np.log(df_main_2_bui_1['power']['apparent'].mask(df_main_2_bui_1['power']['apparent'] <= 0)).fillna(0),
+                       'merged': np.log(df_mains_merged['apparent'].mask(df_mains_merged['apparent'] <= 0)).fillna(0)}
+    data_trans_app = {f'{machine}': np.log(df_machine['power']['active'].mask(df_machine['power']['active'] <= 0)).fillna(0)}
 
-data_trans_main = {'main1': np.log(df_main_1_bui_1['power']['apparent'].mask(df_main_1_bui_1['power']['apparent'] <= 0)).fillna(0),
-                   'main2': np.log(df_main_2_bui_1['power']['apparent'].mask(df_main_2_bui_1['power']['apparent'] <= 0)).fillna(0),
-                   'merged': np.log(df_mains_merged['apparent'].mask(df_mains_merged['apparent'] <= 0)).fillna(0)}
+    df_power_trans_mains = pd.DataFrame(data_trans_main)
+    df_power_trans_app = pd.DataFrame(data_trans_app)
+elif DATASET == 'IMDELD':
+    imdeld = DataSet('./IMDELD/IMDELD.hdf5')
+    machine = 'main'
+    building_elec = imdeld.buildings[1].elec
+    machines_dict = {'main': 1,
+                     'pelletizer_sub': 2,
+                     'milling_I': 10,
+                     'milling_II': 11,
+                     'pelletizer_I': 3,
+                     'pelletizer_II': 4,
+                     'exhaust_fan_I': 7,
+                     'exhaust_fan_II': 8,
+                     'double_pole_I': 5,
+                     'double_pole_II': 6}
+    df_machine = next(building_elec[machines_dict[machine]].load())
 
-data_trans_app = {'oven1': np.log(df_oven_1_bui_1['power']['active'].mask(df_oven_1_bui_1['power']['active'] <= 0)).fillna(0),
-                  'oven2': np.log(df_oven_2_bui_1['power']['active'].mask(df_oven_2_bui_1['power']['active'] <= 0)).fillna(0),
-                  'microwave': np.log(df_microwave_bui_1['power']['active'].mask(df_microwave_bui_1['power']['active'] <= 0)).fillna(0),
-                  'kitchen outlets1': np.log(df_kitchen_outlets_1_bui_1['power']['active'].mask(df_kitchen_outlets_1_bui_1['power']['active'] <= 0)).fillna(0),
-                  'kitchen outlets2': np.log(df_kitchen_outlets_2_bui_1['power']['active'].mask(df_kitchen_outlets_2_bui_1['power']['active'] <= 0)).fillna(0),
-                  'bathroom gfi': np.log(df_bathroom_gfi_bui_1['power']['active'].mask(df_bathroom_gfi_bui_1['power']['active'] <= 0)).fillna(0),
-                  'washer dryer1': np.log(df_washer_dryer_1_bui_1['power']['active'].mask(df_washer_dryer_1_bui_1['power']['active'] <= 0)).fillna(0),
-                  'washer dryer2': np.log(df_washer_dryer_2_bui_1['power']['active'].mask(df_washer_dryer_2_bui_1['power']['active'] <= 0)).fillna(0),
-                  'fridge': np.log(df_fridge_bui_1['power']['active'].mask(df_fridge_bui_1['power']['active'] <= 0)).fillna(0),
-                  'dish washer': np.log(df_dish_washer_bui_1['power']['active'].mask(df_dish_washer_bui_1['power']['active'] <= 0)).fillna(0),
-                  'clean': np.log(df_clean_merge['active'].mask(df_clean_merge['active'] <= 0)).fillna(0)}
+    data_trans_app = {f'{machine}_P': df_machine['power']['active'].apply(find_log),
+                      f'{machine}_Q': df_machine['power']['reactive'].apply(find_log)}
 
-df_power_trans_mains = pd.DataFrame(data_trans_main)
-df_power_trans_app = pd.DataFrame(data_trans_app)
+    df_power_trans_mains = pd.DataFrame(data_trans_app)
+    df_power_trans_app = pd.DataFrame(data_trans_app)
 
 
 # %% Run algorithm with detection of active cycle
 
 
-def run_algorithm(test_index, window_length, shift_count, power_samples, df_power_trans_mains, df_power_trans_app, event_match_aux, event_match,
+def run_algorithm(device, test_index, window_length, shift_count, power_samples, df_power_trans_mains, df_power_trans_app, event_match_aux, event_match,
                   prob_tie_break_ris, rising_or_falling, event_powers, event_timestamps, prediction_dict, power_inter_look_up, power_ranges,
-                  total_consumption, num_last_steady_sts=4, min_samples_steady_state=10, max_samples_transient_state=3, max_window_size=1350, main=True):
+                  total_consumption, dataset, num_last_steady_sts=4, min_samples_steady_state=10, max_samples_transient_state=3, max_window_size=1350, main=True):
     """
 
+    :param device: String that indicates the electric device to evaluate the event-based algorithm
     :param test_index: Integer that indicates the start sample of the whole time series
     :param window_length: Integer that indicates the length of samples of the whole time series
     :param shift_count: Number of samples that must be shifted the window to start at the first sample of the second steady state
@@ -187,6 +231,7 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
     :param power_inter_look_up: dictionary with Lookup list to know for which power interval corresponds to the appliance
     :param power_ranges: list with tuples of the upper and lower power consumption intervals of each appliance
     :param total_consumption: dictionary containing the total consumption of each of the appliances
+    :param dataset: string with the name of the dataset
     :param num_last_steady_sts: Number of steady states to save the euclidean distances mean
     :param min_samples_steady_state: Integer that indicates the minimum number of data points that should be included in a group to be consider a cluster
     :param max_samples_transient_state: Integer to indicate the maximum number of transient samples to give less weight in the euclidean distance calculation
@@ -194,26 +239,60 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
     :param main: Boolean that flags if the test is done on the disaggregated or aggregated power signal
     :return: shift_count, power_samples, prediction_dict
     """
-    features = {'transition': [], 'log_transition': []}
-    rising_features_aux = {'ris_trans_duration': [], 'ris_trans_spike_P': [],
+    if dataset == 'REDD':
+        features = {'transition': [], 'log_transition': []}
+        rising_features_aux = {'ris_trans_duration': [], 'ris_trans_spike_P': [],
+                               'ris_trans_power_change_P': [], 'ris_transition_P': [],
+                               'P_plus_high': [], 'P_plus_low': [],
+                               'delta_P_plus_high': [], 'delta_P_plus_low': [],
+                               'ts': [], 'feature_idx': []}
+        falling_features_aux = {'fall_trans_duration': [], 'fall_trans_spike_P': [],
+                                'fall_trans_power_change_P': [], 'fall_transition_P': [],
+                                'P_minus': [], 'delta_P_minus': [],
+                                'ts': [], 'feature_idx': []}
+        rising_features = {'ris_trans_duration': [], 'ris_trans_spike_P': [],
+                           'ris_trans_power_change_P': [], 'ris_transition_P': []}
+        falling_features = {'fall_trans_duration': [], 'fall_trans_spike_P': [],
+                            'fall_trans_power_change_P': [], 'fall_transition_P': []}
+        unmatched_rising_features = {'timestamp': [], 'ris_trans_duration': [],
+                                     'ris_trans_spike_P': [], 'ris_trans_power_change_P': [],
+                                     'ris_transition_P': []}
+        unmatched_falling_features = {'timestamp': [], 'fall_trans_duration': [],
+                                      'fall_trans_spike_P': [], 'fall_trans_power_change_P': [],
+                                      'fall_transition_P': []}
+    elif dataset == 'IMDELD':
+        features = {'transition': [], 'log_transition': [], 'transition_Q': [], 'log_transition_Q': []}
+        rising_features_aux = {'ris_trans_duration': [], 'ris_trans_spike_P': [],
+                               'ris_trans_power_change_P': [], 'ris_transition_P': [],
+                               'ris_transition_Q': [], 'ris_trans_power_change_Q': [],
+                               'ris_trans_spike_Q': [],
+                               'P_plus_high': [], 'P_plus_low': [],
+                               'delta_P_plus_high': [], 'delta_P_plus_low': [],
+                               'ts': [], 'feature_idx': []}
+        falling_features_aux = {'fall_trans_duration': [], 'fall_trans_spike_P': [],
+                                'fall_trans_power_change_P': [], 'fall_transition_P': [],
+                                'fall_transition_Q': [], 'fall_trans_power_change_Q': [],
+                                'fall_trans_spike_Q': [],
+                                'P_minus': [], 'delta_P_minus': [],
+                                'ts': [], 'feature_idx': []}
+        rising_features = {'ris_trans_duration': [], 'ris_trans_spike_P': [],
                            'ris_trans_power_change_P': [], 'ris_transition_P': [],
-                           'P_plus_high': [], 'P_plus_low': [],
-                           'delta_P_plus_high': [], 'delta_P_plus_low': [],
-                           'ts': [], 'feature_idx': []}
-    falling_features_aux = {'fall_trans_duration': [], 'fall_trans_spike_P': [],
+                           'ris_transition_Q': [], 'ris_trans_power_change_Q': [],
+                           'ris_trans_spike_Q': []}
+        falling_features = {'fall_trans_duration': [], 'fall_trans_spike_P': [],
                             'fall_trans_power_change_P': [], 'fall_transition_P': [],
-                            'P_minus': [], 'delta_P_minus': [],
-                            'ts': [], 'feature_idx': []}
-    rising_features = {'ris_trans_duration': [], 'ris_trans_spike_P': [],
-                       'ris_trans_power_change_P': [], 'ris_transition_P': []}
-    falling_features = {'fall_trans_duration': [], 'fall_trans_spike_P': [],
-                        'fall_trans_power_change_P': [], 'fall_transition_P': []}
-    unmatched_rising_features = {'timestamp': [], 'ris_trans_duration': [],
-                                 'ris_trans_spike_P': [], 'ris_trans_power_change_P': [],
-                                 'ris_transition_P': []}
-    unmatched_falling_features = {'timestamp': [], 'fall_trans_duration': [],
-                                  'fall_trans_spike_P': [], 'fall_trans_power_change_P': [],
-                                  'fall_transition_P': []}
+                            'fall_transition_Q': [], 'fall_trans_power_change_Q': [],
+                            'fall_trans_spike_Q': []}
+        unmatched_rising_features = {'timestamp': [], 'ris_trans_duration': [],
+                                     'ris_trans_spike_P': [], 'ris_trans_power_change_P': [],
+                                     'ris_transition_P': [],
+                                     'ris_transition_Q': [], 'ris_trans_power_change_Q': [],
+                                     'ris_trans_spike_Q': []}
+        unmatched_falling_features = {'timestamp': [], 'fall_trans_duration': [],
+                                      'fall_trans_spike_P': [], 'fall_trans_power_change_P': [],
+                                      'fall_transition_P': [],
+                                      'fall_transition_Q': [], 'fall_trans_power_change_Q': [],
+                                      'fall_trans_spike_Q': []}
     events_ts = []  # To record the timestamp of when the events happened
     ON_OFF_event = []  # To record if was an On or OFF event
     euc_dist_means = []  # To record the previous euclidean distances from the past 2 consecutive steady states
@@ -229,18 +308,28 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
     shift = False  # Flag to shift the power samples to the first sample of the second steady state
     if main:
         data = df_power_trans_mains
-        appliance = 'merged'
+        appliance = device
     else:
         data = df_power_trans_app
-        appliance = 'fridge'
+        appliance = device
 
     for i in range(len(data[test_index:test_index + window_length])):
+        if i % 2000 == 0:
+            progress = (i / len(data[test_index:test_index + window_length])) * 100
+            print('Progress', progress)
         if shift:
             shift_count += min_samples_steady_state  # It must shifted back the min number of samples of the steady state (DBSCAN parameter)
             shift = False  # Flag back to False to search again for other steady states
-        power_samples['P_t'].append(data[appliance][test_index:test_index + window_length].iloc[i - shift_count])
+        if dataset == 'REDD':
+            power_samples['P_t'].append(data[appliance][test_index:test_index + window_length].iloc[i - shift_count])
+        elif dataset == 'IMDELD':
+            power_samples['P_t'].append(data[appliance + '_P'][test_index:test_index + window_length].iloc[i - shift_count])
+            power_samples['Q_t'].append(data[appliance + '_Q'][test_index:test_index + window_length].iloc[i - shift_count])
         if len(power_samples['P_t']) >= window_size:
-            df_power_samples = pd.DataFrame(power_samples, index=data[appliance].iloc[test_index:test_index + window_length].index[(i - shift_count) - window_size + 1:(i - shift_count) + 1])
+            if dataset == 'REDD':
+                df_power_samples = pd.DataFrame(power_samples, index=data[appliance].iloc[test_index:test_index + window_length].index[(i - shift_count) - window_size + 1:(i - shift_count) + 1])
+            elif dataset == 'IMDELD':
+                df_power_samples = pd.DataFrame(power_samples, index=df_power_trans_app[appliance + '_P'].iloc[test_index:test_index + window_length].index[(i - shift_count) - window_size + 1:(i - shift_count) + 1]).dropna()
             ts = df_power_samples.index
             ts = ts.astype('int64')
             # Calculate the euclidean distance between consecutive rows (samples), i.e. 0 and 1, 1 and 2, 2 and 3...
@@ -271,13 +360,17 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
             if not {0, 1}.issubset(np.unique(clusters.labels_)):  # To check if there are at least 2 steady states and one transient (-1) (equivalent set([0, 1]).issubset(np.unique(clusters.labels_)))
                 window_size += 1  # If not, increase window size to increase the likelihood of finding two steady states
                 if window_size % max_window_size == 0:  # If the window size increases more than max_window_size samples, start with a new window to avoid the overload for the DBSCAN calculation
-                    print(window_size)
-                    power_samples = {'P_t': []}  # Empty the power samples to detect new transient states
+                    if dataset == 'REDD':
+                        power_samples = {'P_t': []}  # Empty the power samples to detect new transient states
+                    elif dataset == 'IMDELD':
+                        power_samples = {'P_t': [], 'Q_t': []}  # Empty the power samples to detect new transient states
                     window_size = (min_samples_steady_state * 2) + 1  # Return to the initial window size
             else:
-                print(window_size)
                 shift = True  # It means that the samples must be shifted back to the first sample of the second steady state
-                power_samples = {'P_t': []}  # Empty the power samples to detect new transient states
+                if dataset == 'REDD':
+                    power_samples = {'P_t': []}  # Empty the power samples to detect new transient states
+                elif dataset == 'IMDELD':
+                    power_samples = {'P_t': [], 'Q_t': []}  # Empty the power samples to detect new transient states
                 window_size = (min_samples_steady_state * 2) + 1  # Return to the initial window size
                 first_steady_st_inx = [idx for idx, element in enumerate(clusters.labels_) if element == 0]
                 second_steady_st_inx = [idx for idx, element in enumerate(clusters.labels_) if element == 1]
@@ -288,7 +381,6 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                 second_cond = any(first > second_steady_st_inx[0] for first in first_steady_st_inx)
                 if first_cond or second_cond:
                     continue
-                print(len(clusters.labels_))
                 events_ts.append(ts[first_steady_st_inx[-1]])  # Save the last sample of the first steady state: that is where the transition to another state occurred
                 # Define if it was an ON or OFF event
                 ON_or_OFF = np.exp(df_power_samples.iloc[second_steady_st_inx].P_t.mean()) - np.exp(df_power_samples.iloc[first_steady_st_inx].P_t.mean())
@@ -302,6 +394,8 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                     rising_features_aux['delta_P_plus_low'].append(np.abs(df_power_samples.iloc[second_steady_st_inx].P_t.min() - df_power_samples.iloc[first_steady_st_inx].P_t.max()))
                     rising_features_aux['ts'].append(ts[first_steady_st_inx[-1]] // 1000000000)
                     rising_events.append(ts[first_steady_st_inx[-1]])  # Store the rising event unix timestamp
+                    if dataset == 'IMDELD':
+                        rising_features_aux['ris_transition_Q'].append(df_power_samples.iloc[second_steady_st_inx].Q_t.mean() - df_power_samples.iloc[first_steady_st_inx].Q_t.mean())
                     if not GND_ST:  # Definition of the ground state if it is not defined yet
                         GND_ST = True
                         ground_state_high = df_power_samples.iloc[first_steady_st_inx].P_t.max()  # Upper level of the ground state
@@ -313,6 +407,8 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                     falling_features_aux['delta_P_minus'].append(np.abs(df_power_samples.iloc[second_steady_st_inx].P_t.mean() - df_power_samples.iloc[first_steady_st_inx].P_t.mean()))
                     falling_features_aux['ts'].append(ts[first_steady_st_inx[-1]] // 1000000000)
                     falling_events.append(ts[first_steady_st_inx[-1]])  # Store the falling event unix timestamp
+                    if dataset == 'IMDELD':
+                        falling_features_aux['fall_transition_Q'].append(df_power_samples.iloc[second_steady_st_inx].Q_t.mean() - df_power_samples.iloc[first_steady_st_inx].Q_t.mean())
                     # Check end of active cycle
                     candidate_ground_st = df_power_samples.iloc[second_steady_st_inx].P_t.mean()  # Defining the candidate ground state of the second steady state to see if the active cycle is over
                     if GND_ST:  # If ground state is detected check for end of active cycle
@@ -325,6 +421,9 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                 # Power change from one steady state to another (i.e., transition power change)
                 features['transition'].append(np.exp(df_power_samples.iloc[second_steady_st_inx].P_t.mean()) - np.exp(df_power_samples.iloc[first_steady_st_inx].P_t.mean()))
                 features['log_transition'].append(df_power_samples.iloc[second_steady_st_inx].P_t.mean() - df_power_samples.iloc[first_steady_st_inx].P_t.mean())
+                if dataset == 'IMDELD':
+                    features['transition_Q'].append(np.exp(df_power_samples.iloc[second_steady_st_inx].Q_t.mean()) - np.exp(df_power_samples.iloc[first_steady_st_inx].Q_t.mean()))
+                    features['log_transition_Q'].append(df_power_samples.iloc[second_steady_st_inx].Q_t.mean() - df_power_samples.iloc[first_steady_st_inx].Q_t.mean())
                 if {-1}.issubset(values):  # meaning that noise was detected from the transient states in between steady states
                     trans_idx = [idx for idx, element in enumerate(clusters.labels_) if element == -1]  # Check which are the indexes of the outliers (i.e., -1) (transient samples)
                     if ON_or_OFF > 0 and np.abs(ON_or_OFF) >= 40:  # Define if it is a rising or falling spike to determine its dimensions AND filtering the low power events
@@ -340,6 +439,14 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                         rising_features_aux['ris_trans_spike_P'].append(max_P - min_P)
                         # Index correspondence with dictionary features
                         rising_features_aux['feature_idx'].append(len(features['transition']) - 1)
+                        if dataset == 'IMDELD':
+                            # Active and reactive power change of the transient state
+                            trans_reactive_change = np.exp(df_power_samples.iloc[trans_idx].Q_t.max()) - np.exp(df_power_samples.iloc[first_steady_st_inx].Q_t.mean())
+                            rising_features_aux['ris_trans_power_change_Q'].append(trans_reactive_change)
+                            # Transient spike for reactive and active powers
+                            max_Q = np.exp(df_power_samples.iloc[trans_idx].Q_t.max())
+                            min_Q = np.exp(df_power_samples.iloc[second_steady_st_inx].Q_t.mean())
+                            rising_features_aux['ris_trans_spike_Q'].append(max_Q - min_Q)
                     elif ON_or_OFF < 0 and np.abs(ON_or_OFF) >= 40:
                         # Transient duration
                         trans_duration = pd.Timedelta.total_seconds(df_power_samples.index[second_steady_st_inx[0]] - df_power_samples.index[first_steady_st_inx[-1]])  # Timedelta to total seconds with pandas
@@ -355,17 +462,31 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                         falling_features_aux['fall_trans_spike_P'].append(max_P - min_P)
                         # Index correspondence with dictionary features
                         falling_features_aux['feature_idx'].append(len(features['transition']) - 1)
+                        if dataset == 'IMDELD':
+                            # Active and reactive power change of the transient state
+                            trans_reactive_change = np.exp(df_power_samples.iloc[first_steady_st_inx].Q_t.mean()) - np.exp(df_power_samples.iloc[trans_idx].Q_t.min())
+                            # Transient spike for reactive and active powers
+                            max_Q = np.exp(df_power_samples.iloc[second_steady_st_inx].Q_t.mean())
+                            min_Q = np.exp(df_power_samples.iloc[trans_idx].Q_t.min())
+                            # Active and reactive power change of the transient state
+                            falling_features_aux['fall_trans_power_change_Q'].append(trans_reactive_change)
+                            # Transient spike for reactive and active powers
+                            falling_features_aux['fall_trans_spike_Q'].append(max_Q - min_Q)
                 else:  # Meaning that there was not a detectable noise between the first and second steady state in the window (i.e. transient state) (depending on high or low freq. data)
                     if ON_or_OFF > 0 and np.abs(ON_or_OFF) >= 40:  # Define if it is a rising or falling spike to determine its dimensions AND filtering the low power events
                         rising_features_aux['ris_trans_duration'].append(0)
                         rising_features_aux['ris_trans_power_change_P'].append(0)
                         rising_features_aux['ris_trans_spike_P'].append(0)
+                        rising_features_aux['ris_trans_power_change_Q'].append(0)
+                        rising_features_aux['ris_trans_spike_Q'].append(0)
                         # Index correspondence with dictionary features
                         rising_features_aux['feature_idx'].append(len(features['transition']) - 1)
                     elif ON_or_OFF < 0 and np.abs(ON_or_OFF) >= 40:
                         falling_features_aux['fall_trans_duration'].append(0)
                         falling_features_aux['fall_trans_power_change_P'].append(0)
                         falling_features_aux['fall_trans_spike_P'].append(0)
+                        falling_features_aux['fall_trans_power_change_Q'].append(0)
+                        falling_features_aux['fall_trans_spike_Q'].append(0)
                         # Index correspondence with dictionary features
                         falling_features_aux['feature_idx'].append(len(features['transition']) - 1)
                 if END_ACTIVE_CYCLE:  # If active cycle has ended start event matching
@@ -413,14 +534,20 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                             # Empty list to save the probabilities of each appliance
                             app_prob = []
                             for app in apps:
-                                df_features = pd.read_csv(f'transitions/{app[0]}.csv', index_col=0)
+                                df_features = pd.read_csv(f'transitions/{dataset}/{app[0]}.csv', index_col=0)
                                 if features['transition'][event] > 0:  # Rising event
-                                    df_rising_features = pd.read_csv(f'transitions/{app[0]}_rising.csv', index_col=0)
+                                    df_rising_features = pd.read_csv(f'transitions/{dataset}/{app[0]}_rising.csv', index_col=0)
                                     # Build for active power in watts
                                     df_features['watt_transition_low'] = np.abs(np.exp(df_features['high_state_min']) - np.exp(df_features['low_state_max']))
                                     df_features['watt_transition_high'] = np.abs(np.exp(df_features['high_state_max']) - np.exp(df_features['low_state_min']))
                                     transitions = pd.concat([df_features['watt_transition_low'], df_features['watt_transition_high']], axis=0)
                                     app_watt_transition = pd.DataFrame(transitions)
+                                    if dataset == 'IMDELD':
+                                        # Build for reactive power in VAR
+                                        df_features['var_transition_low'] = np.abs(np.exp(df_features['high_state_min_Q']) - np.exp(df_features['low_state_max_Q']))
+                                        df_features['var_transition_high'] = np.abs(np.exp(df_features['high_state_max_Q']) - np.exp(df_features['low_state_min_Q']))
+                                        transitions_Q = pd.concat([df_features['var_transition_low'], df_features['var_transition_high']], axis=0)
+                                        app_var_transition = pd.DataFrame(transitions_Q)
                                     # Time feature (feature engineering)
                                     df_features['timestamp'] = df_features['timestamp'] // 1000000000
                                     timestamp_s = df_features['timestamp']
@@ -442,7 +569,13 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                                     prob5 = pdf(df_features['Day sin'], np.sin(rising_features_aux['ts'][rising_idx] * (2 * np.pi / day)))
                                     prob6 = pdf(df_features['Day cos'], np.cos(rising_features_aux['ts'][rising_idx] * (2 * np.pi / day)))
                                     # Dependent probability (multiplication of the probabilities-->that is the sum of the log probabilities)
-                                    app_prob.append(prob1 + prob2 + prob3 + prob4 + prob5 + prob6)
+                                    if dataset == 'REDD':
+                                        app_prob.append(prob1 + prob2 + prob3 + prob4 + prob5 + prob6)
+                                    elif dataset == 'IMDELD':
+                                        prob11 = pdf(df_rising_features['ris_trans_power_change_Q'], rising_features_aux['ris_trans_power_change_Q'][rising_idx])
+                                        prob22 = pdf(df_rising_features['ris_trans_spike_Q'], rising_features_aux['ris_trans_spike_Q'][rising_idx])
+                                        prob44 = pdf(app_var_transition, features['transition_Q'][event])
+                                        app_prob.append(prob1 + prob2 + prob3 + prob4 + prob5 + prob6 + prob11 + prob22 + prob44)
                                 else:  # Falling event is not considered because there is no significant data to calculate the probabilities for each appliance (at least 40% of the detected events)
                                     break
                             # Tie break based on rising events
@@ -451,8 +584,11 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                                 which_app_idx = apps[app_idx][1]  # Extract the index of the power interval corresponding to the appliance (is a list of tuples the second element is the interval index)
                                 prob_tie_break_ris.loc[which_app_idx, event] = 1
                         # Empty the dictionaries for the next active cycle
-                        features = {'transition': [], 'log_transition': []}
-                        ####--- Event pair matching: ----####
+                        if dataset == 'REDD':
+                            features = {'transition': [], 'log_transition': []}
+                        elif dataset == 'IMDELD':
+                            features = {'transition': [], 'log_transition': [], 'transition_Q': [], 'log_transition_Q': []}
+                        # ###--- Event pair matching: ----####
                         # Linking already the first rising event with the last falling event, we already know they are a match because the both open and close the active cycle respectively (ris_compatibility_idx=0, fall_compatibility_idx=len(falling_events)-1)
                         # Only matching condition-->for both events the appliance must coincide:
                         # Extract which rising event was in the event match aux matrix
@@ -487,30 +623,29 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                             prediction_dict['timestamp'].append(falling_events[len(falling_events) - 1])
                             prediction_dict['appliance'].append(power_inter_look_up[fall_appliance_idx])
                             prediction_dict['On_Off'].append(0)
-                            rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux = append_features(rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux, 0, len(falling_events) - 1)
+                            rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux = append_features(dataset, rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux, 0, len(falling_events) - 1)
                         while len(rising_events) != 0 and len(falling_events) != 0:  # It means that not all rising/falling events have found a match
                             # Check which is the adjacent falling element of the last rising event
                             ris_compatibility_idx = len(rising_events) - 1  # The last element index of the rising events
                             # Extract which rising event was in the event match aux matrix
                             ris_event_idx = rising_features_aux['feature_idx'][ris_compatibility_idx]
                             if ris_event_idx not in event_match_aux.columns:  # Meaning that in the previous step, that event was filtered and is probably noise (power below certain value)
-                                rising_events, unmatched_rising_features, rising_features_aux = append_rising_unmatched(rising_events, unmatched_rising_features, rising_features_aux, ris_compatibility_idx)
+                                rising_events, unmatched_rising_features, rising_features_aux = append_rising_unmatched(dataset, rising_events, unmatched_rising_features, rising_features_aux, ris_compatibility_idx)
                                 continue  # Pass to the next iteration
                             subtraction = np.array(falling_events) - np.array(rising_events[-1])  # The subtraction between the unix timestamps that gives the least number is the adjacent event of that rising event
                             # The rising event cannot be associated with the previous falling events (i.e., a negative result from the subtraction), just with the succeeding
                             adjacent_events = [k[0] for k in sorted(enumerate(subtraction), key=lambda x: x[1]) if k[1] > 0]  # Find the indexes of the positive sorted integers
                             if len(adjacent_events) == 0:  # Meaning that for that rising event there are not future falling events (only preceding falling events), therefore, there is not a match for that rising event
                                 in_between_unmatched.append((ris_event_idx, rising_events[ris_compatibility_idx], rising_features_aux['ris_transition_P'][ris_compatibility_idx]))
-                                rising_events, unmatched_rising_features, rising_features_aux = append_rising_unmatched(rising_events, unmatched_rising_features, rising_features_aux, ris_compatibility_idx)
+                                rising_events, unmatched_rising_features, rising_features_aux = append_rising_unmatched(dataset, rising_events, unmatched_rising_features, rising_features_aux, ris_compatibility_idx)
                                 continue  # Pass to the next iteration
                             else:
                                 fall_compatibility_idx = adjacent_events[0]
                                 # Extract which falling event was in the event match aux matrix
                                 fall_event_idx = falling_features_aux['feature_idx'][fall_compatibility_idx]
                                 if fall_event_idx not in event_match_aux.columns:  # Meaning that in the previous step, that event was filtered and is probably noise (power below certain value)
-                                    falling_events, unmatched_falling_features, falling_features_aux = append_falling_unmatched(falling_events, unmatched_falling_features, falling_features_aux, fall_compatibility_idx)
+                                    falling_events, unmatched_falling_features, falling_features_aux = append_falling_unmatched(dataset, falling_events, unmatched_falling_features, falling_features_aux, fall_compatibility_idx)
                                     continue  # Pass to the next iteration
-                            # TODO extract the power consumption for the time interval of the match
                             # Check compatibility between events:
                             # First condition:
                             P_plus_low = rising_features_aux['P_plus_low'][ris_compatibility_idx]
@@ -551,7 +686,7 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                                 prediction_dict['timestamp'].append(falling_events[fall_compatibility_idx])
                                 prediction_dict['appliance'].append(power_inter_look_up[fall_appliance_idx])
                                 prediction_dict['On_Off'].append(0)
-                                rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux = append_features(rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux, ris_compatibility_idx, fall_compatibility_idx)
+                                rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux = append_features(dataset, rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux, ris_compatibility_idx, fall_compatibility_idx)
                             else:  # Check the remaining events and slide the compatibility index
                                 len_rising_before = len(rising_events)  # Save the length of rising events before searching for a match
                                 # Pass to the next falling event if the first was not a match and there still falling events
@@ -583,19 +718,19 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
                                         prediction_dict['timestamp'].append(falling_events[fall_index])
                                         prediction_dict['appliance'].append(power_inter_look_up[fall_appliance_idx])
                                         prediction_dict['On_Off'].append(0)
-                                        rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux = append_features(rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux, ris_compatibility_idx, fall_index)
+                                        rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux = append_features(dataset, rising_events, falling_events, rising_features, falling_features, rising_features_aux, falling_features_aux, ris_compatibility_idx, fall_index)
                                         break
                                 len_rising_after = len(rising_events)  # Save the length of rising events after searching for a match
                                 if len_rising_after == len_rising_before:  # It means that the rising event did not found a match
                                     in_between_unmatched.append((ris_event_idx, rising_events[ris_compatibility_idx], rising_features_aux['ris_transition_P'][ris_compatibility_idx]))
-                                    rising_events, unmatched_rising_features, rising_features_aux = append_rising_unmatched(rising_events, unmatched_rising_features, rising_features_aux, ris_compatibility_idx)
+                                    rising_events, unmatched_rising_features, rising_features_aux = append_rising_unmatched(dataset, rising_events, unmatched_rising_features, rising_features_aux, ris_compatibility_idx)
                         if len(falling_events) != 0 or len(rising_events) != 0:  # Meaning that not all rising/falling events were matched with a falling/rising event
                             for j in range(len(falling_events)):
                                 in_between_unmatched.append((fall_event_idx, falling_events[0], falling_features_aux['fall_transition_P'][0]))
-                                falling_events, unmatched_falling_features, falling_features_aux = append_falling_unmatched(falling_events, unmatched_falling_features, falling_features_aux, 0)
+                                falling_events, unmatched_falling_features, falling_features_aux = append_falling_unmatched(dataset, falling_events, unmatched_falling_features, falling_features_aux, 0)
                             for j in range(len(rising_events)):
                                 in_between_unmatched.append((ris_event_idx, rising_events[0], rising_features_aux['ris_transition_P'][0]))
-                                rising_events, unmatched_rising_features, rising_features_aux = append_rising_unmatched(rising_events, unmatched_rising_features, rising_features_aux, 0)
+                                rising_events, unmatched_rising_features, rising_features_aux = append_rising_unmatched(dataset, rising_events, unmatched_rising_features, rising_features_aux, 0)
 
                         # After the event matching pair, search for the unmatched non-filtered events that might have an appliance match (for the odd number of events in an active cycle)
                         if not all(event_idx[0] in event_match.columns for event_idx in in_between_unmatched):  # If at least one of the unmatched events (all command), is NOT in the event match columns we must search for the match
@@ -655,25 +790,39 @@ def run_algorithm(test_index, window_length, shift_count, power_samples, df_powe
     return shift_count, power_samples, prediction_dict, total_consumption
 
 
-power_samples = {'P_t': []}
+if DATASET == 'REDD':
+    test_index = 0
+    window_length = 580507  # 580507 is 2011-04-25 13:22:15 for the aggregated signal
+    power_samples = {'P_t': []}
+elif DATASET == 'IMDELD':
+    # test_index = 243930  # 243930 is 2017-12-14 16:42:00 for the aggregated signal
+    test_index = 3420159
+    power_samples = {'P_t': [], 'Q_t': []}
+    # window_length = len(df_machine) - test_index
+    window_length = 15314
+
 min_samples_steady_state = 10
-test_index = 0
-window_length = 580507  # 580507 is 2011-04-25 13:22:15 for the aggregated signal
 shift_count = min_samples_steady_state + 1  # Number of samples that must be shifted the window to start at the first sample of the second steady state
 prediction_df = pd.DataFrame()
 
 while shift_count > min_samples_steady_state:
     shift_count = 0
-    shift_count, power_samples, prediction_dict, total_consumption = run_algorithm(test_index, window_length, shift_count, power_samples,
+    shift_count, power_samples, prediction_dict, total_consumption = run_algorithm(machine, test_index, window_length, shift_count, power_samples,
                                                                                    df_power_trans_mains, df_power_trans_app, event_match_aux,
                                                                                    event_match, prob_tie_break_ris, rising_or_falling, event_powers,
                                                                                    event_timestamps, prediction_dict, power_inter_look_up, power_ranges,
-                                                                                   total_consumption, min_samples_steady_state=min_samples_steady_state)
+                                                                                   total_consumption, DATASET, min_samples_steady_state=min_samples_steady_state)
     print('shift count:', shift_count)
     test_index = test_index + window_length - (shift_count + len(power_samples['P_t'])) - 1
     window_length = shift_count + len(power_samples['P_t'])
-    power_samples = {'P_t': []}
     prediction_dict_df = pd.DataFrame(prediction_dict)
     prediction_df = pd.concat([prediction_df, prediction_dict_df])
     prediction_dict = {'timestamp': [], 'appliance': [], 'On_Off': []}
-prediction_df.to_csv('predictions/pred.csv')
+    if DATASET == 'REDD':
+        power_samples = {'P_t': []}
+    elif DATASET == 'IMDELD':
+        power_samples = {'P_t': [], 'Q_t': []}
+total_consumption_df = pd.DataFrame(total_consumption, index=[0])
+total_consumption_df = total_consumption_df / 1000  # Convert the total consumption into kWh
+total_consumption_df.to_csv(f'predictions/energy consumption/{DATASET}/consumption.csv')
+prediction_df.to_csv(f'predictions/events/{DATASET}/pred.csv')
