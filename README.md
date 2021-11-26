@@ -1,6 +1,6 @@
 <h1 align="center">
   <a href="https://github.com/links-nilm-thesis-21/load-disaggregation" title="Deep Reinforcement Learning for autonomous systems Documentation">
-    <img alt="Semi-supervised Event Pairing Method for Non-intrusive Load Monitoring" src="stuff/presentation_slide.drawio.png" width="200px" height="200px" />
+    <img alt="Semi-supervised Event Pairing Method for Non-intrusive Load Monitoring" src="stuff/presentation_slide.drawio.png" width="150px" height="200px" />
   </a>
   <br/>
   Semi-supervised Event Pairing Method for Non-intrusive Load Monitoring
@@ -57,8 +57,8 @@ The REDD residential and the IMDELD industrial datasets are the considered case 
 
 | Document      | Status |                                                            PDF                                                             |         Project Folder         |
 | :------------ | :----: | :------------------------------------------------------------------------------------------------------------------------: | :----------------------------: |
-| Master Thesis |  WIP   | [:page_facing_up:](https://github.com/pieromacaluso/Deep-RL-Autonomous-Systems/raw/master/master_thesis/master_thesis.pdf) | [:file_folder:](master_thesis) |
-| Summary       |  WIP   |       [:page_facing_up:](https://github.com/pieromacaluso/Deep-RL-Autonomous-Systems/raw/master/summary/summary.pdf)       |    [:file_folder:](summary)    |
+| Master Thesis |  WIP   | [:page_facing_up:](https://github.com/links-nilm-thesis-21/load-disaggregation/tree/master/master_thesis/master_thesis.pdf) | [:file_folder:](master_thesis) |
+| Summary       |  WIP   |       [:page_facing_up:](https://github.com/links-nilm-thesis-21/load-disaggregation/tree/master/summary/thesis_summary_.pdf)       |    [:file_folder:](summary)    |
 
 ### Source Code
 
