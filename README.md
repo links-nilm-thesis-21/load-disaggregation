@@ -57,8 +57,8 @@ The REDD residential and the IMDELD industrial datasets are the considered case 
 
 | Document      | Status |                                                            PDF                                                             |         Project Folder         |
 | :------------ | :----: | :------------------------------------------------------------------------------------------------------------------------: | :----------------------------: |
-| Master Thesis |  WIP   | [:page_facing_up:](https://github.com/links-nilm-thesis-21/load-disaggregation/tree/master/master_thesis/master_thesis.pdf) | [:file_folder:](master_thesis) |
-| Summary       |  WIP   |       [:page_facing_up:](https://github.com/links-nilm-thesis-21/load-disaggregation/tree/master/summary/thesis_summary_.pdf)       |    [:file_folder:](summary)    |
+| Master Thesis |  WIP   | [:page_facing_up:](https://github.com/links-nilm-thesis-21/load-disaggregation/raw/master/master_thesis/master_thesis.pdf) | [:file_folder:](master_thesis) |
+| Summary       |  WIP   |       [:page_facing_up:](https://github.com/links-nilm-thesis-21/load-disaggregation/raw/master/summary/thesis_summary_.pdf)       |    [:file_folder:](summary)    |
 
 ### Source Code
 
