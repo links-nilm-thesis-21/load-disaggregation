@@ -154,7 +154,7 @@ prediction_dict = {'timestamp': [], 'appliance': [], 'On_Off': []}  # Creating t
 total_consumption = {elec_device: 0 for elec_device in appliances}  # In Wh
 # %% Load dataset
 if DATASET == 'REDD':
-    redd = DataSet('./REDD/redd.h5')
+    redd = DataSet('REDD/redd.h5')
     machine = 'fridge'
     building_1_elec = redd.buildings[1].elec
     machines_dict = {'main1': 1,
@@ -184,7 +184,7 @@ if DATASET == 'REDD':
     df_power_trans_mains = pd.DataFrame(data_trans_main)
     df_power_trans_app = pd.DataFrame(data_trans_app)
 elif DATASET == 'IMDELD':
-    imdeld = DataSet('./IMDELD/IMDELD.hdf5')
+    imdeld = DataSet('IMDELD/IMDELD.hdf5')
     machine = 'main'
     building_elec = imdeld.buildings[1].elec
     machines_dict = {'main': 1,

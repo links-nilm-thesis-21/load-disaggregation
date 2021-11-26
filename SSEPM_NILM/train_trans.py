@@ -30,7 +30,7 @@ def find_log(x):
 DATASET = 'IMDELD'
 
 if DATASET == 'REDD':
-    redd = DataSet('./REDD/redd.h5')
+    redd = DataSet('REDD/redd.h5')
     machine = 'fridge'
     building_1_elec = redd.buildings[1].elec
     machines_dict = {'oven1': 3,
@@ -50,7 +50,7 @@ if DATASET == 'REDD':
     df_power_trans_app = pd.DataFrame(data_trans_app)
 
 elif DATASET == 'IMDELD':
-    imdeld = DataSet('./IMDELD/IMDELD.hdf5')
+    imdeld = DataSet('IMDELD/IMDELD.hdf5')
     machine = 'double_pole_II'
     building_elec = imdeld.buildings[1].elec
     machines_dict = {'milling_I': 10,
