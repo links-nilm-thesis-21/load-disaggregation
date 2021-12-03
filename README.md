@@ -72,7 +72,7 @@ Please cite using the following BibTex entry:
 
 ```latex
 @unpublished{webthesis20414,
-           month = {Dicember},
+           month = {December},
             year = {2021},
            title = {Semi-supervised Event Pairing Method for Non-intrusive Load Monitoring},
           school = {Politecnico di Torino},
