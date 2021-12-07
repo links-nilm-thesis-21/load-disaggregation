@@ -51,6 +51,12 @@ In this work, the household and industrial fields are analyzed and compared. A s
 The REDD residential and the IMDELD industrial datasets are the considered case studies to evaluate the performance of the proposed approach.
 	For both, residential and industrial applications, it was found that for frequent event appliances, the algorithm accurately detects and classifies the events. Despite this significant result, there is a performance gap for devices that lack frequent events. Thus, an analysis of the strengths and weaknesses of this approach was carried out to define further research ideas or next steps.
 
+## Installation requirements
+
+```shell
+conda env create --file ./requirements_env.yml
+```
+
 ## Repository Structure
 
 ### Master Thesis
