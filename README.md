@@ -77,14 +77,13 @@ conda env create --file ./requirements_env.yml
 Please cite using the following BibTex entry:
 
 ```latex
-@unpublished{webthesis20414,
-           month = {December},
-            year = {2021},
-           title = {Semi-supervised Event Pairing Method for Non-intrusive Load Monitoring},
+@unpublished{webthesis21286,
           school = {Politecnico di Torino},
           author = {Juan Gabriel Pieschacon Vargas},
-             url = {http://webthesis.biblio.polito.it},
-        abstract = {The increasing deployment of energy management systems (EMS) is assisting end-users to become more aware of their energy consumption, intending to mitigate energy waste. In this context, non-intrusive load monitoring (NILM) has emerged as a promising energy management technique to conserve energy. This method aims at distinguishing the individual load consumption from the aggregate power signal measured at a single point. 
-	The majority of NILM methods have been applied to residential settings. Low data availability in the industrial domain makes it difficult to study solutions to disaggregate appliances in this kind of environment. In this work, the household and industrial fields are analyzed and compared. A semi-supervised event pairing method was applied to both scenarios. The algorithm consists of (i) a cluster-based event detection; (ii) the extraction of specific features from each of the events obtained from a small appliance-specific training set; (iii) labels for each detected event of the aggregated power measurement; and (iv) an estimation of the individual load consumption for the present electric devices in the establishment. The REDD residential and the IMDELD industrial datasets are the considered case studies to evaluate the performance of the proposed approach.
-	For both, residential and industrial applications, it was found that for frequent event appliances, the algorithm accurately detects and classifies the events. Despite this significant result, there is a performance gap for devices that lack frequent events. Thus, an analysis of the strengths and weaknesses of this approach was carried out to define further research ideas or next steps.}
+            year = {2021},
+           title = {Semi-supervised Event Pairing Method for Non-Intrusive Load Monitoring},
+           month = {December},
+             url = {http://webthesis.biblio.polito.it/21286/},
+        abstract = {The increasing deployment of energy management systems (EMS) is assisting end-users to become more aware of their energy consumption, intending to mitigate energy waste. In this context, non-intrusive load monitoring (NILM) has emerged as a promising energy management technique to conserve energy. This method aims at distinguishing the individual load consumption from the aggregate power signal measured at a single point.   The majority of NILM methods have been applied to residential settings. Low data availability in the industrial domain makes it difficult to study solutions to disaggregate appliances in this kind of environment.  ??  In this work, the household and industrial fields are analyzed and compared. A semi-supervised event pairing method was applied to both scenarios. The algorithm consists of (i) a cluster-based event detection; (ii) the extraction of specific features from each of the events obtained from a small appliance-specific training set; (iii) labels for each detected event of the aggregated power measurement; and (iv) an estimation of the individual load consumption for the present electric devices in the establishment.    The REDD residential and the IMDELD industrial datasets are the considered case studies to evaluate the performance of the proposed approach. For both, residential and industrial applications, it was found that for frequent event appliances, the algorithm accurately detects and classifies the events. Despite this significant result, there is a performance gap for devices that lack frequent events. Thus, an analysis of the strengths and weaknesses of this approach was carried out to define further research ideas or next steps.}
+}
 ```
